@@ -50,6 +50,7 @@ class CampaignWorker {
 
     /**
      * Process a single campaign
+     * Supports both DB-backed campaigns and ad-hoc payloads from the API.
      */
     async processCampaign(campaign) {
         const campaignId = campaign.campaignId || campaign.id;
@@ -60,14 +61,16 @@ class CampaignWorker {
         this.activeCampaigns.set(campaignId, true);
 
         try {
-            // Update campaign status to processing
-            await this.supabase
-                .from('campaigns')
-                .update({
-                    status: 'processing',
-                    started_at: new Date().toISOString()
-                })
-                .eq('id', campaignId);
+            // If this campaign exists in DB, mark as processing
+            if (campaign.id) {
+                await this.supabase
+                    .from('campaigns')
+                    .update({
+                        status: 'processing',
+                        started_at: new Date().toISOString()
+                    })
+                    .eq('id', campaignId);
+            }
 
             // Parse contacts
             const contacts = typeof campaign.contacts === 'string'
@@ -81,6 +84,13 @@ class CampaignWorker {
             let successCount = 0;
             let failCount = 0;
 
+            // Basic anti-ban: jitter, soft caps, and cooling pauses
+            const baseDelay = delay;
+            const jitterMs = 1500; // +/- 1.5s random jitter
+            const longPauseEvery = 25; // after every 25 messages, pause longer
+            const longPauseMs = 30000; // 30s pause
+            const hardFailLimit = Math.max(10, Math.floor(contacts.length * 0.2)); // stop if too many failures
+
             // Send messages to each contact
             for (let i = 0; i < contacts.length; i++) {
                 const contact = contacts[i];
@@ -93,35 +103,73 @@ class CampaignWorker {
 
                     successCount++;
 
-                    // Update progress
-                    await this.supabase
-                        .from('campaigns')
-                        .update({
-                            sent_count: successCount,
-                            progress: Math.round((i + 1) / contacts.length * 100)
-                        })
-                        .eq('id', campaignId);
+                    // Persist message log & progress if DB campaign
+                    if (campaign.id) {
+                        await this.supabase.from('message_logs').insert({
+                            campaign_id: campaignId,
+                            user_id: userId,
+                            phone: phoneNumber,
+                            message,
+                            status: 'sent'
+                        });
 
-                    // Anti-ban delay
-                    await this.sleep(delay);
+                        await this.supabase
+                            .from('campaigns')
+                            .update({
+                                sent_count: successCount,
+                                progress: Math.round((i + 1) / contacts.length * 100)
+                            })
+                            .eq('id', campaignId);
+                    }
+
+                    // Anti-ban delay with jitter
+                    const jitter = Math.floor(Math.random() * jitterMs * 2) - jitterMs; // [-jitterMs, +jitterMs]
+                    const effectiveDelay = Math.max(1000, baseDelay + jitter);
+                    await this.sleep(effectiveDelay);
+
+                    // Extra cooling pause after bursts
+                    if ((i + 1) % longPauseEvery === 0 && i + 1 < contacts.length) {
+                        console.log(`🧊 Cooling pause after ${i + 1} messages...`);
+                        await this.sleep(longPauseMs);
+                    }
 
                 } catch (error) {
                     console.error(`❌ Failed to send to ${phoneNumber}:`, error.message);
                     failCount++;
+
+                    // Log failure if DB campaign
+                    if (campaign.id) {
+                        await this.supabase.from('message_logs').insert({
+                            campaign_id: campaignId,
+                            user_id: userId,
+                            phone: phoneNumber,
+                            message,
+                            status: 'failed',
+                            error: error.message
+                        });
+                    }
+
+                    // If too many failures, stop early to protect number
+                    if (failCount >= hardFailLimit) {
+                        console.warn(`🛑 Too many failures (${failCount}), stopping campaign ${campaignId} early to avoid bans.`);
+                        break;
+                    }
                 }
             }
 
-            // Update campaign as completed
-            await this.supabase
-                .from('campaigns')
-                .update({
-                    status: 'completed',
-                    sent_count: successCount,
-                    failed_count: failCount,
-                    completed_at: new Date().toISOString(),
-                    progress: 100
-                })
-                .eq('id', campaignId);
+            if (campaign.id) {
+                // Update campaign as completed (or early-stopped)
+                await this.supabase
+                    .from('campaigns')
+                    .update({
+                        status: 'completed',
+                        sent_count: successCount,
+                        failed_count: failCount,
+                        completed_at: new Date().toISOString(),
+                        progress: 100
+                    })
+                    .eq('id', campaignId);
+            }
 
             console.log(`✅ Campaign ${campaignId} completed: ${successCount} sent, ${failCount} failed`);
 

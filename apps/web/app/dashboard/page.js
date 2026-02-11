@@ -247,7 +247,11 @@ export default function DashboardPage() {
 
                 {/* Content based on active tab */}
                 {activeTab === 'overview' && <OverviewTab stats={stats} />}
-                {activeTab === 'campaigns' && <CampaignsTab />}
+                {activeTab === 'campaigns' && (
+                    <CampaignsTab
+                        engineUrl={ENGINE_URL}
+                    />
+                )}
                 {activeTab === 'whatsapp' && (
                     <WhatsAppTab
                         status={whatsappStatus}
@@ -323,21 +327,165 @@ function StatCard({ title, value, icon, trend }) {
     )
 }
 
-function CampaignsTab() {
+function CampaignsTab({ engineUrl }) {
+    const [mode, setMode] = useState('instant') // 'instant' | 'scheduled'
+    const [phonesInput, setPhonesInput] = useState('')
+    const [message, setMessage] = useState('')
+    const [mediaUrl, setMediaUrl] = useState('')
+    const [delayMs, setDelayMs] = useState(3000)
+    const [scheduleAt, setScheduleAt] = useState('')
+
+    const parseContacts = () => {
+        return phonesInput
+            .split(/[\n,]+/)
+            .map(p => p.trim())
+            .filter(p => p.length > 0)
+    }
+
+    const handleSubmit = async (e) => {
+        e.preventDefault()
+
+        const contacts = parseContacts()
+        if (contacts.length === 0 || !message.trim()) {
+            toast.error('Please enter at least one phone and a message.')
+            return
+        }
+
+        try {
+            toast.loading(mode === 'instant' ? 'Sending instantly...' : 'Scheduling campaign...', { id: 'campaign' })
+
+            const body = {
+                userId: 'demo-user',
+                contacts,
+                message,
+                mediaUrl: mediaUrl || null,
+                delay: Number(delayMs) || 3000,
+            }
+
+            if (mode === 'scheduled' && scheduleAt) {
+                body.scheduleAt = scheduleAt
+            }
+
+            const res = await fetch(`${engineUrl}/api/campaign/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            })
+
+            const data = await res.json()
+
+            if (!res.ok || data.error) {
+                throw new Error(data.error || 'Failed to send campaign')
+            }
+
+            toast.success(
+                mode === 'instant' ? 'Instant send started in background.' : 'Campaign scheduled successfully.',
+                { id: 'campaign' }
+            )
+
+        } catch (error) {
+            console.error('Campaign send error:', error)
+            toast.error('Campaign error: ' + error.message, { id: 'campaign' })
+        }
+    }
+
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
-                <h3 className="text-2xl font-bold">Your Campaigns</h3>
-                <button className="btn-neon flex items-center gap-2">
-                    <Plus size={20} />
-                    New Campaign
-                </button>
+                <h3 className="text-2xl font-bold">Campaign Sender</h3>
             </div>
 
             <div className="glass-card p-6">
-                <p className="text-white/60 text-center py-12">
-                    No campaigns yet. Create your first campaign to get started!
-                </p>
+                <div className="flex gap-4 mb-6">
+                    <button
+                        className={`px-4 py-2 rounded-xl text-sm ${mode === 'instant' ? 'btn-neon' : 'bg-white/5 text-white/60'}`}
+                        onClick={() => setMode('instant')}
+                    >
+                        Instant Send
+                    </button>
+                    <button
+                        className={`px-4 py-2 rounded-xl text-sm ${mode === 'scheduled' ? 'btn-neon' : 'bg-white/5 text-white/60'}`}
+                        onClick={() => setMode('scheduled')}
+                    >
+                        Scheduled Campaign
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-sm text-white/60 mb-1">
+                            Phone numbers (one per line or comma-separated)
+                        </label>
+                        <textarea
+                            className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:border-cyber-purple"
+                            rows={4}
+                            value={phonesInput}
+                            onChange={e => setPhonesInput(e.target.value)}
+                            placeholder="e.g. 15551234567, 15557654321"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm text-white/60 mb-1">
+                            Message
+                        </label>
+                        <textarea
+                            className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:border-cyber-purple"
+                            rows={4}
+                            value={message}
+                            onChange={e => setMessage(e.target.value)}
+                            placeholder="Write the message to send..."
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label className="block text-sm text-white/60 mb-1">
+                                Media URL (optional)
+                            </label>
+                            <input
+                                className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:border-cyber-purple"
+                                value={mediaUrl}
+                                onChange={e => setMediaUrl(e.target.value)}
+                                placeholder="https://example.com/image.jpg"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm text-white/60 mb-1">
+                                Delay between messages (ms)
+                            </label>
+                            <input
+                                type="number"
+                                className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:border-cyber-purple"
+                                value={delayMs}
+                                onChange={e => setDelayMs(e.target.value)}
+                                min={1000}
+                            />
+                        </div>
+
+                        {mode === 'scheduled' && (
+                            <div>
+                                <label className="block text-sm text-white/60 mb-1">
+                                    Schedule time (your local time)
+                                </label>
+                                <input
+                                    type="datetime-local"
+                                    className="w-full rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm focus:outline-none focus:border-cyber-purple"
+                                    value={scheduleAt}
+                                    onChange={e => setScheduleAt(e.target.value)}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="pt-4">
+                        <button type="submit" className="btn-neon flex items-center gap-2">
+                            <Send size={18} />
+                            {mode === 'instant' ? 'Send Now' : 'Schedule Campaign'}
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     )

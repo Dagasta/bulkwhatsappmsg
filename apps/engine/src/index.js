@@ -166,31 +166,52 @@ app.post('/api/disconnect/:userId', async (req, res) => {
 // 🔥 CAMPAIGN ENDPOINTS
 // ============================================
 
-// Send Campaign Messages
+// Send Campaign Messages (instant or scheduled)
 app.post('/api/campaign/send', async (req, res) => {
     try {
-        const { userId, campaignId, contacts, message, mediaUrl, delay } = req.body;
+        const { userId, campaignId, contacts, message, mediaUrl, delay, scheduleAt } = req.body;
 
-        if (!userId || !campaignId || !contacts || !message) {
+        if (!userId || !contacts || !message) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        console.log(`📤 Starting campaign ${campaignId} for user ${userId}`);
+        const effectiveCampaignId = campaignId || `instant-${Date.now()}`;
 
-        // Start campaign in background
-        campaignWorker.processCampaign({
+        console.log(`📤 Starting campaign ${effectiveCampaignId} for user ${userId}`);
+
+        const payload = {
             userId,
-            campaignId,
+            campaignId: effectiveCampaignId,
             contacts,
             message,
             mediaUrl,
             delay: delay || 3000
-        });
+        };
+
+        // If scheduleAt is provided and in the future, schedule in-memory
+        if (scheduleAt) {
+            const when = new Date(scheduleAt).getTime();
+            const now = Date.now();
+            const waitMs = when - now;
+
+            if (waitMs > 0) {
+                console.log(`⏰ Scheduling campaign ${effectiveCampaignId} in ${Math.round(waitMs / 1000)}s`);
+                setTimeout(() => {
+                    campaignWorker.processCampaign(payload);
+                }, waitMs);
+            } else {
+                console.log(`⚠️ scheduleAt is in the past, sending immediately for campaign ${effectiveCampaignId}`);
+                campaignWorker.processCampaign(payload);
+            }
+        } else {
+            // Instant send
+            campaignWorker.processCampaign(payload);
+        }
 
         res.json({
             success: true,
-            message: 'Campaign initiated',
-            campaignId
+            message: scheduleAt ? 'Campaign scheduled' : 'Campaign initiated',
+            campaignId: effectiveCampaignId
         });
 
     } catch (error) {
