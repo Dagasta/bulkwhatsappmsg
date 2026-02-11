@@ -46,12 +46,35 @@ export default function DashboardPage() {
 
             if (session?.status === 'connected') {
                 setWhatsappStatus('connected')
+                setQrCode(null)
             } else if (session?.qr_code) {
                 setQrCode(session.qr_code)
                 setWhatsappStatus('waiting_qr')
             }
+
+            return session
         } catch (error) {
             console.error('Status check error:', error)
+            return null
+        }
+    }
+
+    // Poll Supabase for QR/status after backend init starts
+    const pollForQr = async (retries = 20, delayMs = 1000) => {
+        for (let i = 0; i < retries; i++) {
+            const session = await checkWhatsAppStatus()
+
+            if (session?.status === 'connected') {
+                // Already connected; no need to keep polling
+                return
+            }
+
+            if (session?.qr_code) {
+                // QR available – show it and stop
+                return
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, delayMs))
         }
     }
 
@@ -77,10 +100,29 @@ export default function DashboardPage() {
             console.log('🔵 Response data:', data)
 
             if (data.success) {
-                console.log('✅ QR Code received:', data.qrCode ? 'YES' : 'NO')
-                setQrCode(data.qrCode)
-                setWhatsappStatus('waiting_qr')
-                toast.success('QR Code generated! Scan to connect.', { id: 'init' })
+                // Backend now returns immediately; poll engine for QR/status.
+                toast.success('Engine started. Waiting for QR...', { id: 'init' })
+
+                for (let i = 0; i < 30; i++) {
+                    const qrRes = await fetch(`${ENGINE_URL}/api/qr/demo-user`)
+                    const qrData = await qrRes.json()
+
+                    if (qrData?.status === 'connected') {
+                        setWhatsappStatus('connected')
+                        setQrCode(null)
+                        toast.success('WhatsApp Connected! 🎉', { id: 'init' })
+                        break
+                    }
+
+                    if (qrData?.qrCode) {
+                        setQrCode(qrData.qrCode)
+                        setWhatsappStatus('waiting_qr')
+                        toast.success('QR Code ready! Scan to connect.', { id: 'init' })
+                        break
+                    }
+
+                    await new Promise((r) => setTimeout(r, 1000))
+                }
 
                 // Listen for connection
                 listenForConnection()

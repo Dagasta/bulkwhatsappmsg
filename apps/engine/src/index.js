@@ -75,17 +75,16 @@ app.post('/api/init', async (req, res) => {
 
         console.log(`🚀 API CALL: Initializing session for user: ${userId}`);
 
-        // Create session and wait for QR code
-        const result = await waManager.createSession(userId);
+        // Fire-and-forget: start session creation in background.
+        // The client can fetch QR/status via /api/qr/:userId (engine reads from DB).
+        waManager.createSession(userId).catch((err) => {
+            console.error(`❌ Background createSession failed for ${userId}:`, err);
+        });
 
-        console.log(`🎯 API RESPONSE: Sending QR Code = ${result.qrCode ? 'YES' : 'NO'}`);
-
-        // Return QR code directly in response (SaaS-ready approach)
         res.json({
             success: true,
-            qrCode: result.qrCode,
-            status: result.status,
-            message: result.qrCode ? 'QR Code generated successfully' : 'Session already connected'
+            status: 'initializing',
+            message: 'Session initialization started'
         });
 
     } catch (error) {
@@ -95,6 +94,39 @@ app.post('/api/init', async (req, res) => {
             error: error.message,
             details: 'Failed to initialize WhatsApp session'
         });
+    }
+});
+
+// Get QR/DB session state (backend-authoritative, bypasses client RLS issues)
+app.get('/api/qr/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const { data, error } = await supabase
+            .from('whatsapp_sessions')
+            .select('status, qr_code, phone_number, updated_at')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (error) throw error;
+
+        if (!data) {
+            return res.json({
+                success: true,
+                status: 'disconnected',
+                qrCode: null
+            });
+        }
+
+        res.json({
+            success: true,
+            status: data.status || 'disconnected',
+            qrCode: data.qr_code || null,
+            phoneNumber: data.phone_number || null,
+            updatedAt: data.updated_at || null
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 

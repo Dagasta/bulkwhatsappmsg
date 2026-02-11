@@ -66,6 +66,13 @@ class WhatsAppManager {
             }
 
             this.initializingSessions.add(userId);
+            // Safety: if something gets stuck, allow re-init after 2 minutes
+            setTimeout(() => {
+                if (this.initializingSessions.has(userId)) {
+                    console.log(`⏱️  Init TTL expired for ${userId}, clearing initializing flag`);
+                    this.initializingSessions.delete(userId);
+                }
+            }, 2 * 60 * 1000);
 
             // Protocol 2: Kill any existing ghost sessions on disk
             if (this.sessions.has(userId)) {
