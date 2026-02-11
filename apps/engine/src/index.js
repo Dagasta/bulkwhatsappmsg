@@ -15,10 +15,18 @@ app.use(cors());
 app.use(express.json());
 
 // Initialize Supabase
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE
-);
+// Prefer dedicated engine env vars, but gracefully fall back to NEXT_PUBLIC_* for local dev
+const SUPABASE_URL =
+    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE =
+    process.env.SUPABASE_SERVICE_ROLE || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
+    console.error('❌ Missing Supabase credentials. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE (or NEXT_PUBLIC_* for local dev).');
+    process.exit(1);
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 
 // Initialize WhatsApp Manager
 const waManager = new WhatsAppManager(supabase);
@@ -56,29 +64,34 @@ cron.schedule('*/60 * * * * *', async () => {
 // 🔥 WHATSAPP INSTANCE ENDPOINTS
 // ============================================
 
-// Initialize WhatsApp Session
+// ✅ Initialize WhatsApp Session (Generate QR)
 app.post('/api/init', async (req, res) => {
     try {
         const { userId } = req.body;
 
         if (!userId) {
-            return res.status(400).json({ error: 'userId required' });
+            return res.status(400).json({ success: false, error: 'userId required' });
         }
 
-        console.log(`🚀 Initializing session for user: ${userId}`);
+        console.log(`🚀 API CALL: Initializing session for user: ${userId}`);
 
+        // Create session and wait for QR code
         const result = await waManager.createSession(userId);
 
+        console.log(`🎯 API RESPONSE: Sending QR Code = ${result.qrCode ? 'YES' : 'NO'}`);
+
+        // Return QR code directly in response (SaaS-ready approach)
         res.json({
             success: true,
-            sessionId: userId,
             qrCode: result.qrCode,
-            message: 'Session initialized. Scan QR code to connect.'
+            status: result.status,
+            message: result.qrCode ? 'QR Code generated successfully' : 'Session already connected'
         });
 
     } catch (error) {
-        console.error('❌ Init error:', error);
+        console.error('❌ API ERROR:', error);
         res.status(500).json({
+            success: false,
             error: error.message,
             details: 'Failed to initialize WhatsApp session'
         });
@@ -190,10 +203,10 @@ app.listen(PORT, async () => {
 
     // Start Ngrok tunnel
     try {
-        const url = await ngrok.connect({
-            addr: PORT,
-            authtoken: process.env.NGROK_AUTHTOKEN
-        });
+        // Set authtoken first
+        await ngrok.authtoken(process.env.NGROK_AUTHTOKEN);
+
+        const url = await ngrok.connect(PORT);
 
         console.log(`🌐 Ngrok Tunnel: ${url}`);
         console.log('🌐 Use this URL in your Vercel frontend\n');

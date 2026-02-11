@@ -57,8 +57,13 @@ export default function DashboardPage() {
 
     const initializeWhatsApp = async () => {
         try {
+            console.log('🔵 Starting WhatsApp initialization...')
+            console.log('🔵 Engine URL:', ENGINE_URL)
+
             setWhatsappStatus('initializing')
             toast.loading('Initializing WhatsApp...', { id: 'init' })
+
+            console.log('🔵 Sending request to:', `${ENGINE_URL}/api/init`)
 
             const response = await fetch(`${ENGINE_URL}/api/init`, {
                 method: 'POST',
@@ -66,9 +71,13 @@ export default function DashboardPage() {
                 body: JSON.stringify({ userId: 'demo-user' })
             })
 
+            console.log('🔵 Response status:', response.status)
+
             const data = await response.json()
+            console.log('🔵 Response data:', data)
 
             if (data.success) {
+                console.log('✅ QR Code received:', data.qrCode ? 'YES' : 'NO')
                 setQrCode(data.qrCode)
                 setWhatsappStatus('waiting_qr')
                 toast.success('QR Code generated! Scan to connect.', { id: 'init' })
@@ -80,7 +89,8 @@ export default function DashboardPage() {
             }
 
         } catch (error) {
-            console.error('Init error:', error)
+            console.error('❌ Init error:', error)
+            console.error('❌ Error details:', error.message)
             toast.error('Failed to initialize: ' + error.message, { id: 'init' })
             setWhatsappStatus('disconnected')
         }
@@ -213,8 +223,8 @@ function NavItem({ icon, label, active, onClick }) {
         <button
             onClick={onClick}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${active
-                    ? 'bg-gradient-to-r from-cyber-purple/20 to-purple-600/20 border border-cyber-purple/30 text-white'
-                    : 'text-white/60 hover:bg-white/5 hover:text-white'
+                ? 'bg-gradient-to-r from-cyber-purple/20 to-purple-600/20 border border-cyber-purple/30 text-white'
+                : 'text-white/60 hover:bg-white/5 hover:text-white'
                 }`}
         >
             {icon}

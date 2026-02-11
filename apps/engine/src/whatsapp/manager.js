@@ -14,6 +14,7 @@ class WhatsAppManager {
     constructor(supabase) {
         this.supabase = supabase;
         this.sessions = new Map(); // Map of userId -> socket instance
+        this.initializingSessions = new Set(); // Track sessions being initialized to avoid duplicates
         this.logger = pino({ level: 'silent' }); // Silent logger
     }
 
@@ -43,13 +44,37 @@ class WhatsAppManager {
      */
     async createSession(userId) {
         try {
-            // Protocol 2: Kill any existing ghost sessions
+            console.log(`🔵 [1/7] Starting session creation for: ${userId}`);
+
+            // If a session already exists and is connected, don't recreate it
+            const existingSock = this.sessions.get(userId);
+            if (existingSock && existingSock.user) {
+                console.log(`✅ Active session already exists for ${userId}, skipping re-init`);
+                return {
+                    qrCode: null,
+                    status: 'connected'
+                };
+            }
+
+            // If initialization is already in progress, avoid starting another one
+            if (this.initializingSessions.has(userId)) {
+                console.log(`⏳ Session initialization already in progress for ${userId}`);
+                return {
+                    qrCode: null,
+                    status: 'initializing'
+                };
+            }
+
+            this.initializingSessions.add(userId);
+
+            // Protocol 2: Kill any existing ghost sessions on disk
             if (this.sessions.has(userId)) {
                 console.log(`⚠️  Session already exists for ${userId}. Destroying...`);
                 await this.destroySession(userId);
             }
 
             await this.killGhostSession(userId);
+            console.log(`🔵 [2/7] Ghost sessions cleared`);
 
             const sessionPath = path.join(__dirname, '../../sessions', userId);
 
@@ -57,12 +82,29 @@ class WhatsAppManager {
             if (!fs.existsSync(sessionPath)) {
                 fs.mkdirSync(sessionPath, { recursive: true });
             }
+            console.log(`🔵 [3/7] Session directory ready: ${sessionPath}`);
+
+            // Ensure a tracking row exists in Supabase for this user
+            try {
+                await this.supabase.from('whatsapp_sessions').upsert({
+                    user_id: userId,
+                    status: 'initializing',
+                    qr_code: null,
+                    phone_number: null,
+                    updated_at: new Date().toISOString()
+                });
+                console.log(`🔵 [3.5/7] Supabase session row upserted (initializing) for ${userId}`);
+            } catch (dbError) {
+                console.error(`❌ Failed to upsert initial session row for ${userId}:`, dbError);
+            }
 
             // Load auth state
             const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+            console.log(`🔵 [4/7] Auth state loaded`);
 
-            // Get latest Baileys version
+            // Get latest Baileys version (logged for visibility)
             const { version } = await fetchLatestBaileysVersion();
+            console.log(`🔵 [5/7] Baileys version (fetched): ${version.join('.')}`);
 
             // Create WhatsApp socket
             const sock = makeWASocket({
@@ -71,7 +113,7 @@ class WhatsAppManager {
                     creds: state.creds,
                     keys: makeCacheableSignalKeyStore(state.keys, this.logger)
                 },
-                printQRInTerminal: false,
+                printQRInTerminal: true, // Enable terminal QR for debugging
                 logger: this.logger,
                 browser: ['BulkWaMsg', 'Chrome', '10.0'],
                 connectTimeoutMs: 60000,
@@ -79,6 +121,7 @@ class WhatsAppManager {
                 keepAliveIntervalMs: 30000,
                 qrTimeout: 60000
             });
+            console.log(`🔵 [6/7] WhatsApp socket created`);
 
             let qrCodeData = null;
             let isConnected = false;
@@ -86,19 +129,26 @@ class WhatsAppManager {
             // Handle connection updates
             sock.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, qr } = update;
+                console.log(`🔵 Connection update:`, { connection, hasQR: !!qr });
 
-                // Generate QR Code
+                // Generate QR Code and push to Supabase
                 if (qr) {
-                    console.log(`📱 QR Code generated for user: ${userId}`);
+                    console.log(`📱 QR Code RAW DATA RECEIVED for user: ${userId}`);
                     qrCodeData = await qrcode.toDataURL(qr);
+                    console.log(`✅ QR Code converted to DataURL (length: ${qrCodeData.length})`);
 
-                    // Save QR to Supabase
-                    await this.supabase.from('whatsapp_sessions').upsert({
-                        user_id: userId,
-                        qr_code: qrCodeData,
-                        status: 'waiting_qr',
-                        updated_at: new Date().toISOString()
-                    });
+                    try {
+                        await this.supabase.from('whatsapp_sessions').upsert({
+                            user_id: userId,
+                            status: 'waiting_qr',
+                            qr_code: qrCodeData,
+                            phone_number: null,
+                            updated_at: new Date().toISOString()
+                        });
+                        console.log(`✅ QR Code stored in Supabase for user: ${userId}`);
+                    } catch (dbError) {
+                        console.error(`❌ Failed to store QR in Supabase for ${userId}:`, dbError);
+                    }
                 }
 
                 // Handle connection state
@@ -118,12 +168,14 @@ class WhatsAppManager {
                     } else {
                         console.log(`🚪 User ${userId} logged out. Cleaning session...`);
                         await this.destroySession(userId);
+                        this.initializingSessions.delete(userId);
                     }
                 }
 
                 if (connection === 'open') {
                     console.log(`✅ Connection established for user: ${userId}`);
                     isConnected = true;
+                    this.initializingSessions.delete(userId);
 
                     // Update Supabase
                     await this.supabase.from('whatsapp_sessions').upsert({
@@ -141,30 +193,17 @@ class WhatsAppManager {
 
             // Store session
             this.sessions.set(userId, sock);
+            console.log(`🔵 [7/7] Session stored, non-blocking initialization in progress...`);
 
-            // Wait for QR or connection
-            await new Promise((resolve) => {
-                const checkInterval = setInterval(() => {
-                    if (qrCodeData || isConnected) {
-                        clearInterval(checkInterval);
-                        resolve();
-                    }
-                }, 500);
-
-                // Timeout after 30 seconds
-                setTimeout(() => {
-                    clearInterval(checkInterval);
-                    resolve();
-                }, 30000);
-            });
-
+            // Return immediately – QR and status will be pushed via Supabase & terminal
             return {
                 qrCode: qrCodeData,
-                status: isConnected ? 'connected' : 'waiting_qr'
+                status: isConnected ? 'connected' : 'initializing'
             };
 
         } catch (error) {
             console.error(`❌ Create session error for ${userId}:`, error);
+            this.initializingSessions.delete(userId);
             throw error;
         }
     }
