@@ -158,18 +158,27 @@ class WhatsAppManager {
 
                 // Handle connection state
                 if (connection === 'close') {
-                    const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-                    const reason = lastDisconnect?.error?.output?.statusCode;
+                    const statusCode = lastDisconnect?.error?.output?.statusCode;
+                    const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-                    console.log(`❌ Connection closed for ${userId}. Reason: ${reason}`);
+                    console.log(`❌ Connection closed for ${userId}. Reason: ${statusCode}`);
 
-                    if (reason === 405) {
-                        console.log('🔴 ERROR 405: Version Mismatch. Using stable version...');
-                    }
-
+                    // If this was a temporary error (like 515 / transient), try a clean re-init
                     if (shouldReconnect) {
-                        console.log(`🔄 Reconnecting ${userId}...`);
-                        setTimeout(() => this.createSession(userId), 3000);
+                        console.log(`🔄 Reconnecting ${userId} with fresh session...`);
+
+                        // Clear initializing flag so the new attempt isn't blocked
+                        this.initializingSessions.delete(userId);
+
+                        // Destroy any in-memory socket, keep disk auth so WhatsApp can resume
+                        this.sessions.delete(userId);
+
+                        // Small backoff before trying again
+                        setTimeout(() => {
+                            this.createSession(userId).catch(err =>
+                                console.error(`❌ Reconnect createSession failed for ${userId}:`, err)
+                            );
+                        }, 3000);
                     } else {
                         console.log(`🚪 User ${userId} logged out. Cleaning session...`);
                         await this.destroySession(userId);
