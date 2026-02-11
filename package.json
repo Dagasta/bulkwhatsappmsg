@@ -1,0 +1,17 @@
+{
+  "name": "bulkwamsg-ultimate",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=apps/web\" \"npm run dev --workspace=apps/engine\"",
+    "build": "npm run build --workspaces",
+    "start": "npm run start --workspaces"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  }
+}

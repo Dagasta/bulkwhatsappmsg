@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-space-800;
+  }
+  
+  body {
+    @apply bg-space-950 text-white antialiased;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(102, 126, 234, 0.15) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(118, 75, 162, 0.15) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(153, 69, 255, 0.15) 0px, transparent 50%),
+      radial-gradient(at 0% 100%, rgba(20, 241, 149, 0.15) 0px, transparent 50%);
+  }
+}
+
+@layer components {
+  /* Glass Card */
+  .glass-card {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl shadow-glass;
+  }
+  
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300 hover:bg-white/10 hover:shadow-glass-hover hover:border-white/20;
+  }
+
+  /* Neon Button */
+  .btn-neon {
+    @apply px-6 py-3 rounded-xl font-semibold transition-all duration-300;
+    @apply bg-gradient-to-r from-cyber-purple to-purple-600;
+    @apply hover:shadow-neon hover:scale-105 active:scale-95;
+  }
+
+  .btn-neon-blue {
+    @apply px-6 py-3 rounded-xl font-semibold transition-all duration-300;
+    @apply bg-gradient-to-r from-cyber-blue to-teal-500;
+    @apply hover:shadow-neon-blue hover:scale-105 active:scale-95;
+  }
+
+  /* Status Pills */
+  .pill {
+    @apply px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider;
+  }
+
+  .pill-success {
+    @apply pill bg-emerald-500/20 text-emerald-400 border border-emerald-500/30;
+  }
+
+  .pill-warning {
+    @apply pill bg-amber-500/20 text-amber-400 border border-amber-500/30;
+  }
+
+  .pill-error {
+    @apply pill bg-red-500/20 text-red-400 border border-red-500/30;
+  }
+
+  .pill-info {
+    @apply pill bg-blue-500/20 text-blue-400 border border-blue-500/30;
+  }
+
+  /* Input Fields */
+  .input-glass {
+    @apply w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10;
+    @apply focus:bg-white/10 focus:border-cyber-purple focus:outline-none;
+    @apply placeholder-white/30 text-white transition-all duration-300;
+  }
+
+  /* Gradient Text */
+  .text-gradient {
+    @apply bg-gradient-to-r from-cyber-purple via-purple-500 to-cyber-pink bg-clip-text text-transparent;
+  }
+
+  .text-gradient-blue {
+    @apply bg-gradient-to-r from-cyber-blue via-cyan-400 to-blue-500 bg-clip-text text-transparent;
+  }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-space-900/50;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-cyber-purple/50 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-cyber-purple/70;
+}
