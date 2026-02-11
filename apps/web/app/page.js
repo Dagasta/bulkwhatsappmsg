@@ -24,7 +24,7 @@ export default function HomePage() {
                                 Login
                             </button>
                         </Link>
-                        <Link href="/dashboard">
+                        <Link href="/login">
                             <button className="btn-neon">
                                 Get Started
                             </button>
@@ -53,7 +53,7 @@ export default function HomePage() {
                         </p>
 
                         <div className="flex gap-4 justify-center">
-                            <Link href="/dashboard">
+                            <Link href="/login">
                                 <button className="btn-neon text-lg px-8 py-4">
                                     Launch Dashboard
                                     <Zap className="inline ml-2" size={20} />

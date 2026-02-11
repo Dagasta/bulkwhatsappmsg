@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import toast from 'react-hot-toast'
+import { useRouter } from 'next/navigation'
 
 export default function DashboardPage() {
     const [activeTab, setActiveTab] = useState('overview')
@@ -29,19 +30,31 @@ export default function DashboardPage() {
     })
 
     const supabase = createClientComponentClient()
+    const router = useRouter()
+    const [userId, setUserId] = useState(null)
     const ENGINE_URL = process.env.NEXT_PUBLIC_ENGINE_URL || 'http://localhost:2008'
 
-    // Check WhatsApp status on load
+    // Load auth user & then check WhatsApp status
     useEffect(() => {
-        checkWhatsAppStatus()
+        const init = async () => {
+            const { data, error } = await supabase.auth.getUser()
+            if (error || !data?.user) {
+                router.push('/login')
+                return
+            }
+            setUserId(data.user.id)
+            checkWhatsAppStatus(data.user.id)
+        }
+        init()
     }, [])
 
-    const checkWhatsAppStatus = async () => {
+    const checkWhatsAppStatus = async (uid = userId) => {
+        if (!uid) return null
         try {
             const { data: session } = await supabase
                 .from('whatsapp_sessions')
                 .select('*')
-                .eq('user_id', 'demo-user')
+                .eq('user_id', uid)
                 .single()
 
             if (session?.status === 'connected') {
@@ -79,6 +92,11 @@ export default function DashboardPage() {
     }
 
     const initializeWhatsApp = async () => {
+        if (!userId) {
+            toast.error('No user session. Please log in again.')
+            router.push('/login')
+            return
+        }
         try {
             console.log('🔵 Starting WhatsApp initialization...')
             console.log('🔵 Engine URL:', ENGINE_URL)
@@ -91,7 +109,7 @@ export default function DashboardPage() {
             const response = await fetch(`${ENGINE_URL}/api/init`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: 'demo-user' })
+                body: JSON.stringify({ userId })
             })
 
             console.log('🔵 Response status:', response.status)
@@ -104,7 +122,7 @@ export default function DashboardPage() {
                 toast.success('Engine started. Waiting for QR...', { id: 'init' })
 
                 for (let i = 0; i < 30; i++) {
-                    const qrRes = await fetch(`${ENGINE_URL}/api/qr/demo-user`)
+                    const qrRes = await fetch(`${ENGINE_URL}/api/qr/${userId}`)
                     const qrData = await qrRes.json()
 
                     if (qrData?.status === 'connected') {
@@ -146,7 +164,7 @@ export default function DashboardPage() {
                     event: 'UPDATE',
                     schema: 'public',
                     table: 'whatsapp_sessions',
-                    filter: 'user_id=eq.demo-user'
+                    filter: `user_id=eq.${userId || ''}`
                 },
                 (payload) => {
                     if (payload.new.status === 'connected') {
@@ -250,6 +268,7 @@ export default function DashboardPage() {
                 {activeTab === 'campaigns' && (
                     <CampaignsTab
                         engineUrl={ENGINE_URL}
+                        userId={userId}
                     />
                 )}
                 {activeTab === 'whatsapp' && (
@@ -327,7 +346,7 @@ function StatCard({ title, value, icon, trend }) {
     )
 }
 
-function CampaignsTab({ engineUrl }) {
+function CampaignsTab({ engineUrl, userId }) {
     const [mode, setMode] = useState('instant') // 'instant' | 'scheduled'
     const [phonesInput, setPhonesInput] = useState('')
     const [message, setMessage] = useState('')
@@ -355,7 +374,7 @@ function CampaignsTab({ engineUrl }) {
             toast.loading(mode === 'instant' ? 'Sending instantly...' : 'Scheduling campaign...', { id: 'campaign' })
 
             const body = {
-                userId: 'demo-user',
+                userId,
                 contacts,
                 message,
                 mediaUrl: mediaUrl || null,
