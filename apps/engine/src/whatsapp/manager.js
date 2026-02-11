@@ -109,13 +109,11 @@ class WhatsAppManager {
             const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
             console.log(`🔵 [4/7] Auth state loaded`);
 
-            // Get latest Baileys version (logged for visibility)
-            const { version } = await fetchLatestBaileysVersion();
-            console.log(`🔵 [5/7] Baileys version (fetched): ${version.join('.')}`);
-
             // Create WhatsApp socket
             const sock = makeWASocket({
-                version: this.getStableVersion(), // Protocol 1: Stable version
+                // Use latest compatible Baileys version to avoid 405
+                // (hard-coded version was causing disconnects)
+                version: (await fetchLatestBaileysVersion()).version,
                 auth: {
                     creds: state.creds,
                     keys: makeCacheableSignalKeyStore(state.keys, this.logger)
